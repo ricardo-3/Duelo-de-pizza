@@ -38,6 +38,9 @@ export default function PizzaVotingApp() {
   const [newPizzaName, setNewPizzaName] = useState("")
   const [newPizzaImage, setNewPizzaImage] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string>("")
+  const [isPublishing, setIsPublishing] = useState(false)
+  const [lastSync, setLastSync] = useState<string | null>(null)
+  const [syncUrl, setSyncUrl] = useState<string>("")
 
   // Cargar datos del localStorage al iniciar
   useEffect(() => {
@@ -53,6 +56,14 @@ export default function PizzaVotingApp() {
       localStorage.setItem("pizzas", JSON.stringify(pizzas))
     }
   }, [pizzas])
+
+  // Cargar último sync al iniciar
+  useEffect(() => {
+    const savedSync = localStorage.getItem("lastSync")
+    if (savedSync) {
+      setLastSync(savedSync)
+    }
+  }, [])
 
   // Redimensionar imagen a 1080x1080
   const resizeImage = (file: File): Promise<string> => {
@@ -187,6 +198,90 @@ export default function PizzaVotingApp() {
     )
   }
 
+  // Función para publicar cambios
+  const publishChanges = async () => {
+    setIsPublishing(true)
+    try {
+      // Crear un objeto con todos los datos
+      const dataToPublish = {
+        pizzas,
+        timestamp: Date.now(),
+        version: "1.0",
+      }
+
+      // Convertir a JSON
+      const jsonData = JSON.stringify(dataToPublish, null, 2)
+
+      // Crear un blob y URL para descarga
+      const blob = new Blob([jsonData], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+
+      // Crear elemento de descarga
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `pizza-voting-${new Date().toISOString().split("T")[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      // Actualizar timestamp de sincronización
+      setLastSync(new Date().toLocaleString())
+      localStorage.setItem("lastSync", new Date().toLocaleString())
+
+      alert("¡Datos exportados! Comparte este archivo con otros usuarios o súbelo a tu servidor.")
+    } catch (error) {
+      alert("Error al publicar cambios: " + error)
+    } finally {
+      setIsPublishing(false)
+    }
+  }
+
+  // Función para importar cambios
+  const importChanges = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string)
+        if (data.pizzas && Array.isArray(data.pizzas)) {
+          setPizzas(data.pizzas)
+          setLastSync(new Date().toLocaleString())
+          localStorage.setItem("lastSync", new Date().toLocaleString())
+          alert("¡Datos importados exitosamente!")
+        } else {
+          alert("Archivo inválido")
+        }
+      } catch (error) {
+        alert("Error al importar: " + error)
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  // Función para sincronizar desde URL
+  const syncFromUrl = async () => {
+    if (!syncUrl.trim()) return
+
+    try {
+      const response = await fetch(syncUrl)
+      const data = await response.json()
+
+      if (data.pizzas && Array.isArray(data.pizzas)) {
+        setPizzas(data.pizzas)
+        setLastSync(new Date().toLocaleString())
+        localStorage.setItem("lastSync", new Date().toLocaleString())
+        alert("¡Sincronización exitosa!")
+      } else {
+        alert("Datos inválidos en la URL")
+      }
+    } catch (error) {
+      alert("Error al sincronizar: " + error)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-orange-50 p-4">
       <div className="max-w-md mx-auto">
@@ -204,6 +299,79 @@ export default function PizzaVotingApp() {
           <Plus className="w-4 h-4 mr-2" />
           Agregar Nueva Pizza
         </Button>
+
+        {/* Sección de Sincronización */}
+        <Card className="mb-6 border-blue-200 bg-blue-50">
+          <CardContent className="p-4">
+            <div className="space-y-4">
+              <div className="text-center">
+                <h3 className="text-lg font-semibold text-blue-800 mb-2">🔄 Sincronización</h3>
+                {lastSync && <p className="text-sm text-blue-600 mb-3">Última sincronización: {lastSync}</p>}
+              </div>
+
+              {/* Botón Publicar */}
+              <Button
+                onClick={publishChanges}
+                disabled={isPublishing || pizzas.length === 0}
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white"
+              >
+                {isPublishing ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                    Publicando...
+                  </>
+                ) : (
+                  <>📤 Publicar Cambios</>
+                )}
+              </Button>
+
+              {/* Importar archivo */}
+              <div>
+                <Label htmlFor="import-file" className="text-sm font-medium text-blue-700">
+                  Importar desde archivo:
+                </Label>
+                <Input id="import-file" type="file" accept=".json" onChange={importChanges} className="mt-1" />
+              </div>
+
+              {/* Sincronizar desde URL */}
+              <div>
+                <Label htmlFor="sync-url" className="text-sm font-medium text-blue-700">
+                  Sincronizar desde URL:
+                </Label>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    id="sync-url"
+                    value={syncUrl}
+                    onChange={(e) => setSyncUrl(e.target.value)}
+                    placeholder="https://tu-servidor.com/pizza-data.json"
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={syncFromUrl}
+                    disabled={!syncUrl.trim()}
+                    size="sm"
+                    className="bg-green-500 hover:bg-green-600"
+                  >
+                    Sync
+                  </Button>
+                </div>
+              </div>
+
+              {/* Instrucciones */}
+              <div className="bg-white p-3 rounded-lg border border-blue-200">
+                <p className="text-xs text-blue-600">
+                  <strong>💡 Cómo sincronizar:</strong>
+                  <br />
+                  1. <strong>Publicar:</strong> Descarga un archivo JSON con todos los datos
+                  <br />
+                  2. <strong>Importar:</strong> Carga un archivo JSON desde otro dispositivo
+                  <br />
+                  3. <strong>URL:</strong> Sincroniza desde un archivo JSON en línea
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Formulario agregar pizza */}
         {showAddForm && (
